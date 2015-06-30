@@ -1,0 +1,7 @@
+#!/bin/cat
+
+:Hello this is a recipe for disaster
+::In one neat package, pipe me thru' on your _own_ risk! => for that .you need: :except_first::func! or :skip_first:: or a `sed` job
+
+:Todo:: mundate package/module{+s?}// relocation and instalation
+::Follow this *.cat thru' with your Eye()s open, this should and is just .a: _recipe_

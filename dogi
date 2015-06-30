@@ -1,0 +1,40 @@
+#!/bin/bash
+
+function is_value() {
+    PASSED="$1"
+    if [[ -d "$PASSED" ]]; then
+        echo "n"
+    elif [[ -f "$PASSED" ]]; then
+        echo "n"
+    else
+        echo "y"
+    fi
+}
+
+MESSAGE="$1"
+if [[ "$(is_value $MESSAGE)" == "y" ]]; then
+    shift
+else
+    MESSAGE="n/a"
+fi
+
+O_PUSH="n"
+O_PUSH_TARGET=""
+if [[ "$1" == "-p" ]]; then
+    O_PUSH="y"
+    shift
+    if [[ "$(is_value $1)" == "y" ]]; then
+        O_PUSH_TARGET="$1"
+        shift
+    else
+        O_PUSH_TARGET="origin master"
+    fi
+fi
+
+git add $@
+git commit -m "$MESSAGE"
+
+if [[ "$O_PUSH" == "y" ]]; then
+    git push "$O_PUSH_TARGET"
+fi
+
