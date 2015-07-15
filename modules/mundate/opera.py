@@ -1,9 +1,15 @@
-
+#
+# Common operations for web aware entities. LOL
+#
+# Listage::
+#   echo ** this echoes 
+import threading
 import os, sys, re, fnmatch
 import requests
 import sqlalchemy
 import BeautifulSoup as Soup 
-from pulo import is_iterable
+from pulo import is_iterable, Eye
+
 #
 # Utility function::
 #    something      ** to be printed
@@ -138,3 +144,39 @@ def parse_out(contents, **context):
 def gather_links(tags, **context):
     echo( "gather_links :: tags -> context -> links" )
     pass
+
+# based on::
+#  http://stackoverflow.com/questions/273192/in-python-check-if-a-directory-exists-and-create-it-if-necessary
+#   
+# This makes a directory, 
+# path ** that is to be created
+# options["parents"]?   (True/False)  ** mkdir -p?
+# options["mode"]?      (Octal mode)  ** Do you need a mode &todo
+# returns? { 'failed': reasons
+#
+def mk_dir(path, **options):
+    ret = {}
+    mode = 0777
+    if 'mode' in options:
+        mode = options['mode']
+
+    parents = False
+    
+    def makedirs(f, mode):
+        os.makedirs(f, mode)
+        
+    def mkdir(f, mode):
+        pass    
+        
+    def ensure_dir(f, mode):
+        d = os.path.dirname(f)
+        if not os.path.exists(d):
+            os.makedirs(d, mode)
+
+
+#
+# Main Borg for doing actions on the filesystem.
+#  This borg needs a lock() that is to be locked() every time a Filesystem Action
+#   is to be performed
+#
+

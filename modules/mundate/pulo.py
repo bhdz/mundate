@@ -1,13 +1,40 @@
+import random
+import string
 
+def decorf(before_f, after_f, *a, **kw):
+    def decorator(func):
+        def decoration(*args, **kwargs):
+            before_f(*a, **kw)
+            ret = func(*args, **kwargs)
+            after_f(*a, **kw)
+            return ret
+        return decoration
+    return decorator
+
+def check_decorf():
+    def before():
+        print "before"
+    def after():
+        print "after"
+        
+    @decorf(before,after)
+    def lala():
+        print "lala"
+        
+    lala()
+    
+def random_string(N):
+    return ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(N))
+    
 def yes(*values, **keywords):
     ret = True
     for value in values:
-        if value is None or value == False:
+        if value is None or value == False or value == "":
             ret = False
             break
             
     for value in keywords.itervalues():
-        if value is None or value == False:
+        if value is None or value == False or value == "":
             ret = False
             break
     return ret
@@ -131,10 +158,12 @@ class Node(object):
     pass
 
 class Entry(dict):
-    """It's for stacking values/names on top of attributes and a real handy way to keep an eye watch over elements thru' hierarchically structured Tree-like object. see """
+    """It's for stacking values/names on top of attributes and a real handy 
+    way to keep an eye watch over elements thru' hierarchically structured 
+    Tree-like object. see """
     def __init__(self, value):
         self.__value = value
-    
+        
     @property
     def _mangled(self):
         return '_{}__'.format(self.__class__.__name__)
@@ -144,13 +173,14 @@ class Entry(dict):
         return self.__value
     
     def __getattr__(self, name):
-        value = None
+        attribute = None
         
         if name.startswith(self._mangled):
-            value = super(Entry, self).__getitem__(name)
+            attribute = super(Entry, self).__getitem__(name)
         else:
-            value = super(Entry, self).__getattr__(name)
-        return value
+
+            attribute = super(Entry, self).__getattr__(name)
+        return attribute
       
     def __setattr__(self, name, value):
         if name.startswith(self._mangled):
@@ -160,7 +190,11 @@ class Entry(dict):
             super(Entry, self).__setattr__(name, val)
 
     def __str__(self):
-        pass
+        ret = ""
+        for a, v in self.__dict__.iteritems():
+            ret = "%s(%s: %s)" % ( ret, a, str(v._value))
+        
+        return ret
         
 def check_Entry():
     e = Entry("root")
@@ -175,26 +209,88 @@ def check_Entry():
     
     print "e.person:", e.joe._value, ", type?", type(e.joe)
     print "e.person.age:", e.joe.age._value, ", type?", type(e.joe.age)
-    print "e.person"
-        
-class Eye(object):
-    __sections = { '_gaze': Entry("root") }
+    print "e.person.age:", e.joe.name._value, ", type?", type(e.joe.name)
+    print "e.person.age:", e.joe.name.last._value, ", type?", type(e.joe.name.last)
+    print "e.person.age:", e.joe.name.last._value, ", type?", type(e.joe.name.last)
     
-    def __init__(self, *a, **kw):
-        self.__dict__ = Eye.__sections
+    print "e.joe:", e
+
+from borgs import Borg
+'''
+class Eye(Borg):
+    def __init__(self, focus = None, *args, **kw):
+        super(Eye, self).__init__( _gaze = Entry("root") )
+        
+        if isinstance(focus, str) and yes(focus):
+            sections = focus.split(".")
+            print sections
+            innermost = self._gaze
+            print "innermost._value:", innermost._value
+            
+            arg = self._gaze #.__getattr__( sections[0] )
+            print "arg:",arg,"type(arg):",type(arg), "dir(arg):", dir(arg)
+            
+            
+            #for section in sections:
+            #    print "section: ", section
+            #    innermost = innermost.__getattr__(section)._value
+            #    print "innermost:", innermost,", type(innermost):", type(innermost)
+            self.__dict__ = innermost
+        
+    def __str__(self):
+        pass
+'''
+
+class Eye(object):
+    __shared_state = {
+                      '_gaze': Entry("root")
+                      }
+    def __init__(self, focus = None, *args, **kw):
+        self.__dict__ = self.__shared_state
+        
+        if isinstance(focus, str) and yes(focus):
+            sections = focus.split(".")
+            print sections
+            innermost = self._gaze
+            print "innermost._value:", innermost._value
+            
+            arg = self._gaze #.__getattr__( sections[0] )
+            print "arg:",arg,"type(arg):",type(arg), "dir(arg):", dir(arg)
+            
+            
+            #for section in sections:
+            #    print "section: ", section
+            #    innermost = innermost.__getattr__(section)._value
+            #    print "innermost:", innermost,", type(innermost):", type(innermost)
+            self.__dict__ = innermost
+        
+    def __str__(self):
+        head = self._gaze
         
 def check_Eye():
     Eye()._gaze.john = "John Lennon"
     Eye()._gaze.john.name = "John"
     Eye()._gaze.john.name.last = "Lennon"
     Eye()._gaze.john.trabacho = "Guitar Player"
-    Eye()._gaze.john.guitarra = "Less Paul Gibson"
-    e = Eye("career")
-    e.john.occupation = "Musician"
-    e.john.age = 35
+    Eye()._gaze.john.guitar = "Less Paul Gibson"
+    e = Eye()
+    e._gaze.john.occupation = "Musician"
+    e._gaze.john.age = 35
     
-
+    print e._gaze.john.occupation._value
+    print e._gaze.john.age._value
+    print e._gaze.john.name._value
+    
+    print e
+    
+    '''john = Eye("john")
+    print john.name._value
+    print john.occupation._value
+    
+    john_name = Eye("john.name")
+    print john_name.last._value
+    '''
 if __name__ == "__main__":
     check_Entry()
-    check_Eye()
-    
+    #check_Eye()
+    #check_decorf()
