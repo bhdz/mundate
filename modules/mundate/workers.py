@@ -10,6 +10,7 @@ import time
 
 from borgs import Synched
 from mundate.pulo import random_string
+from gnomekeyring import BadArgumentsError
 
 
 #
@@ -116,78 +117,6 @@ def OrEvent(*events):
     changed()
     return orevent
 
-def or_event(event, *events):
-    def or_set(self):
-        self._set()
-        self.changed()
-    
-    def or_clear(self):
-        self._clear()
-        self.changed()
-    
-    def orify(e, changed_callback):
-        if False == _is_patched(e):
-            e._set = e.set
-            e._clear = e.clear
-            e.changed = changed_callback
-            e.set = lambda: or_set(e)
-            e.clear = lambda: or_clear(e)
-        
-    def _is_patched(e):
-        Synched.out("True? %s / _is_patched" % str(e))
-        if '_set' in e.__dict__:
-            return True
-        elif '_clear' in e.__dict__:
-            return True
-        return False
-    
-    if event is None:
-        event = threading.Event()
-        
-    def changed():
-        bools = [e.is_set() for e in events]
-        if any(bools):
-            event.set()
-        else:
-            event.clear()
-            
-    for e in events:
-        orify(e, changed)
-            
-    changed()
-    return event
-
-def check_OrEvent():
-    return None
-    import time
-    
-    def wait_on(name, e):
-        print "Waiting on %s..." % (name,)
-        e.wait()
-        print "%s fired!" % (name,)
-    e1 = threading.Event()
-    e2 = threading.Event()
-
-    or_e = OrEvent(e1, e2)
-    or_e2 = OrEvent(e1, e2)
-
-    threading.Thread(target=wait_on, args=('e1', e1)).start()
-    time.sleep(0.05)
-    threading.Thread(target=wait_on, args=('e2', e2)).start()
-    time.sleep(0.05)
-    threading.Thread(target=wait_on, args=('or_e', or_e)).start()
-    time.sleep(0.05)
-
-    print "Firing e1 in 2 seconds..."
-    time.sleep(2)
-    e1.set()
-    time.sleep(0.05)
-
-    print "Firing e2 in 2 seconds..."
-    time.sleep(2)
-    e2.set()
-    time.sleep(0.05)
-    
 def start_all(threads):
     for thread in threads:
         thread.start()
@@ -195,113 +124,388 @@ def start_all(threads):
 def join_all(threads):
     for thread in threads:
         thread.join()
+        
+def threads_do(threads, method, *args, **kwargs):
+    for thread in threads:
+        method(thread, *args, **kwargs)
 
-# 
+def threads_start(threads):
+    threads_do(threads, QueueWorker.start)
+        
+def threads_pause(threads):
+    threads_do(threads, QueueWorker.pause)
+
+def threads_resume(threads):
+    threads_do(threads, QueueWorker.resume)
+        
+def threads_join(threads):
+    threads_do(threads, QueueWorker.join)
+        
+# This is just for debugging purposes
+def thread_say(fmt, *args, **keys):
+    _name = threading.current_thread().name
+    
+    label_string = "Thread:{name}".format(name=_name)
+    fmt_string = fmt.format(*args, **keys)
+    full_string = "{label}:: {fmt}".format(label=label_string, fmt=fmt_string)
+    return Synched.out(full_string)
+
+
+class ActionedEvents(list):
+    def __init__(self, iterable = []):
+        self.names = {} # [index] name
+        self.actions = {} # [index] action
+        self._is_owned = {} 
+        self.indices_names = {} # [name] index
+        self.indices_actions = {} # [action] index
+        self.indices_is_owned = {} # [is_owned:bool] index
+        
+        #self.or_event = OrEvent(*self)
+        super(ActionedEvents, self).__init__(iterable)
+        
+    def remove(self, event):
+        if event in list(self):
+            index = self.index(event)
+            name = self.names.pop(index)
+            action = self.actions.pop(index)
+            
+            self.indices_names.pop(name)
+            self.indices_actions.pop(action)
+            return super(ActionedEvents, self).remove(event)
+            
+    def add(self, event, action, name, is_owned = True):
+        if not event in list(self):
+            self.append(event)
+            index = self.index(event)
+            
+            self._is_owned[index] = is_owned
+            
+            self.actions[index] = action
+            self.names[index] = name
+            
+            self.indices_names[name] = index
+            self.indices_actions[action] = index
+            
+            # Update <or_event>
+            #self.or_event = OrEvent(*self)
+            return event    
+        else:
+            raise BadArgumentsError("<event> already in the event stack")
+        
+        
+    def get(self, by_name = None, by_index = None):
+        index = None
+        if by_name:
+            if not by_name in self.names.values():
+                raise Exception("not (<nameid> in self.events_names)")
+            index = self.indices_names[by_name]
+        elif by_index:
+            index = by_index
+        thread_say("index = {index}", index=index)
+        event = None
+        if index is not None:
+            event = self[index]
+        return event
+    
+    def set(self, event, action, name, is_owned = True):
+        if not event in list(self):
+            raise Exception("Cannot set an unregistered Event")
+        
+        index = self.index(event)
+        
+        #event.is_owned = is_owned
+        self._is_owned[index] = is_owned
+        
+        self.actions[index] = action
+        self.indices_actions[action] = index
+        
+        self.names[index] = name
+        self.indices_names[name] = index
+        return event
+    
+    def action(self, event):
+        return self.actions[self.index(event)]
+    
+    def action_set(self, event, action):
+        index = self.index(event)
+        self.actions[index] = action
+        self.indices_actions[action] = index
+    
+    def name(self, event):
+        return self.names[self.index(event)]
+    
+    def name_set(self, event, name):
+        index = self.index(event)
+        self.names[index] = name
+        self.indices_names[name] = index
+        
+    def is_owned(self, event):
+        index = self.index(event)
+        return self._is_owned[index]
+    
+    def is_owned_set(self, event, is_owned):
+        index = self.index(event)
+        self._is_owned[index] = is_owned
+
 # Worker class
 # 
 # Works on a queue which by default is polled for input tasks
 #
-class Worker(threading.Thread):
-    """ Worker: Basic thread that deals with a queue <self.queue>.
-    By default
+class QueueWorker(threading.Thread):
+    """ Worker: Basic thread that works with a <queue> and supports
+    <pause>, 
     """ 
+
     class State:
         WORKING = 0
         SLEEPING = 1
         ERROR = -1
         
     class Policy:
-        _META = True
         _INFO = {
-                     'QUEUE_GET': ['polling']
-                     }
-        QUEUE_GET = 'polling'
+                     'QUEUE_GET': ['polling', 'blocking'],
+                     'QUEUE_GET_DEFAULT': 'polling',
+                }
+        QUEUE_GET = 'polling' # Default
+        SLEEP_TIMEOUT = 0.5
  
     def __init__(self, queue, 
                  target = None,
                  args = (),
                  kwargs = {},
                  name = None,
-                 e_quit=threading.Event(),
-                 e_pause=threading.Event(), 
+                 e_quit=threading.Event(),  # Global QUIT
+                 e_command=threading.Event(),
+                 *events,
                  **options):
-        self.state = Worker.State.SLEEPING
         self.queue = queue
-        self.e_quit = e_quit
-        self.e_pause = e_pause
+        #self.e_quit = e_quit
+
         self.target = target
         self.args = args
         self.kwargs = kwargs
-        super(Worker, self).__init__(target=target, name=name, args=args, kwargs=kwargs)
+        
+        super(QueueWorker, self).__init__(target=target, name=name, args=args, kwargs=kwargs)
+        
+        self._init()
+        self._init_events(e_quit, e_command)
+
+    def _init(self):
+        #Reader(), make these configurable by <options>
+        self.state = QueueWorker.State.WORKING
+        self.state_prev = None
+        self.policy = QueueWorker.Policy.QUEUE_GET
+        self.quitting = False
+        
+    def _init_events(self, e_quit, e_command):
+        self.events = ActionedEvents()
+        self.events.add(threading.Event(), self.on_sleep, 'sleep', True)
+        self.events.add(threading.Event(), self.on_wakeup, 'wakeup', True)
+        self.events.add(e_quit, self.on_quit, 'quit', False)
+        self.events.add(e_command, self.on_command, 'command', False)
+        
+    def check_events(self):
+        """ Checks the thread for set events and returns them as a list
+        """
+        
+        events_set = []
+        for event in self.events:
+            if event.is_set():
+                events_set.append(event)
+        return events_set
+                
+    def process_events(self, set_events = []):
+        """ Processes a set of triggered events""" 
+        for event in set_events:
+            if event.is_set():
+                
+                action = self.events.action(event) # self.get_event_action(event)
+
+                action(event)
+                if self.events.is_owned(event):
+                    event.clear()
     
-    # Implement this    
+    def change_policy(self, new_policy):
+        self.policy_prev = self.policy
+        self.policy = new_policy
+        return self.policy_prev
+    
+    def change_state(self, new_state):
+        """ Todo """
+        self.state_prev = self.state
+        self.state = new_state
+        return self.state_prev
+    
+    #
+    # Events/Action handlers
+    #
+    
+    # These are actions to be called on each event <set>
+    def on_command(self, event):
+        pass
+    
+    def on_quit(self, event):
+        self.quitting = True
+     
+    def on_sleep(self, event):
+        #e_wakeup = self.events.get('wakeup')
+        self.change_state(QueueWorker.State.SLEEPING)
+        #e_wakeup.wait()
+        
+    
+    def on_wakeup(self, event):
+        #e_sleep = self.events.get('sleep')
+        #e_sleep.clear()
+        #event.clear()
+        self.change_state(QueueWorker.State.WORKING)
+    
+
+                
+    # Override this to modify the behavior of Worker while getting items from 
+    #  the queue 
+    def do_fetch(self):
+        # This is by the DEFAULT POLICY (polling) 
+        item = None
+        try:
+            item = self.queue.get_nowait()
+        except Empty:
+            item = None # Or sleep
+        return item
+        
+    # Implement this if you want specific result 
     def do_result(self, result):
         """do_result: Handles the result of one work operation <do_work>. 
         Override this behavior in subclasses.
         """
         pass
     
-    # Overwrite this
+    def do_nothing(self):
+        pass
+    
+    # Overwrite this if you want something different than targeting <target>
     def do_work(self, item):
         """do_work: Handles A Unit of operation. 
         Override this behavior in subclasses.
         """
+        result = None
         if self.target:
             result = self.target(item, *self.args, **self.kwargs)
-            self.do_result(result)
-            
-    def run(self):
-        while True:
-            # check for events
-            if self.e_quit.is_set():
-                break
-            if self.e_pause.is_set():
-                # Todo
-                pass
-
-            # fetch from the queue
-            item = None
-            try:
-                item = self.queue.get_nowait()
-            except Empty:
-                continue # Or sleep
-            
-            # do work with the item
-            self.do_work(item)
-            
-
-def check_Worker():
-    from pulo import random_string
+        return result
     
+    def run(self):
+        while self.quitting == False:
+            # check for events
+            set_events = self.check_events()
+           
+            # respond to events
+            self.process_events(set_events)
+
+            # do work with the item, override this for Producers
+            if self.state == QueueWorker.State.WORKING:
+                # fetch from the queue, override this for Producers
+                item = self.do_fetch()
+                if item:
+                    result = self.do_work(item)
+                    
+                    if result:
+                        self.do_result(result)
+                else:
+                    self.do_nothing()
+            elif self.state == QueueWorker.State.SLEEPING:
+                #thread_say("Sleeping for {secs}", secs = Worker.Policy.SLEEP_TIMEOUT)
+                time.sleep(QueueWorker.Policy.SLEEP_TIMEOUT)
+    
+    #
+    # Interface
+    #
+    
+    # pause
+    def pause(self):
+        """ This puts the Worker into <sleep> with <on_sleep> event action 
+        method, see <on_sleep> for a complete view over the operation"""
+        #thread_say("pause()!")
+        #self.e_pause.set()
+        e_sleep = self.events.get(by_name='sleep')
+        if e_sleep:
+            e_sleep.set()
+        else:
+            raise Exception("Cannot fetch 'sleep' event/action!")
+        
+    # resume    
+    def resume(self):
+        """ This resumes operations using <wakeup> event and 
+        <on_wakeup> event action method"""
+        #thread_say("resume()!")
+        e_wakeup = self.events.get(by_name='wakeup')
+        if e_wakeup:
+            e_wakeup.set()
+        else:
+            raise Exception("Cannot fetch 'wakeup' event/action!")
+        
+    # stop
+    def stop(self):
+        e_quit = self.events.get(by_name='quit')
+        if e_quit:
+            e_quit.set()
+        else:
+            raise Exception("Cannot fetch 'quit' event/action!")
+        
+    # command
+    def command(self, target):
+        e_command = self.events.get(by_name='command')
+    
+def check_Worker_basic():
+    from pulo import random_string
     
     def create_string(N):
         ret = "Hello world! [%d]" % N
         return ret
     
     def pretty_print(item, label):
-        Synched.out("-=@ {label}: {item} @=-", label=label, item=item)
+        Synched.out("-=@ {label}: {item} @=-", label=label, item=item)    
+
 
     queue = Queue()
     e_quit = threading.Event()
+    e_pause = threading.Event()
+    e_wakeup = threading.Event()
     
-    print "Mainthread: creating items..."
+    thread_say("Creating items...")
     # fill up the queue
     count = 1 
-    for x in xrange(1, 5000):
+    for x in xrange(1, 25):
         queue.put(create_string(count))
         count += 1
     
-    consumer = Worker(queue, target=pretty_print, args=('Pretty',), 
-                      e_quit=e_quit)
+    consumer = QueueWorker(queue, target=pretty_print, args=('PrettyPrint',),
+                      name = "PrettyPrinter", 
+                      e_quit=e_quit,
+                      )
      
-    print "Mainthread: Starting daemon for 5 secs..."
-    #producer.daemon = True
+    thread_say("Starting thread for 3 secs...")
+
     consumer.start()
-    time.sleep(5)
-     
-    Synched.out("Mainthread: Quitting...")
-    e_quit.set()
     time.sleep(1)
+    
+    for y in xrange(1,3):
+        consumer.pause()
+        
+        for x in xrange(1, 5):
+            queue.put(create_string(count))
+            count += 1
+            
+        time.sleep(1)
+        thread_say("Resuming thread")
+        
+        consumer.resume()
+
+
+    time.sleep(3)
+     
+    thread_say("Set Quit...")
+    e_quit.set()
+    time.sleep(2)
+    thread_say("Joining Threads...")
     consumer.join()
         
     def empty_queue():
@@ -313,87 +517,393 @@ def check_Worker():
     
     empty_queue()
 
-    
-class Producer(Worker):
-    def __init__(self, qoutput, target, equit=threading.Event(), 
-                 args=(), kwargs={}, **opts):
-        name = ""
-        if 'name' in opts:
-            name = opts.pop('name')
+# 
+# A producer Worker.
+#  Each Producer treats the queue as something to be filled with data, rather 
+#  than a source of data for the thread
+#
+class QueueProducer(QueueWorker):
+    def __init__(self, queue, 
+                 target = None,
+                 args = (),
+                 kwargs = {},
+                 name = None,
+                 e_quit=threading.Event(),  # Global QUIT
+                 e_command=threading.Event(),
+                 **options):
         
-        super(Producer, self).__init__(target=target, name=name,args=args, kwargs=kwargs)
-        self.qoutput = qoutput
-        self.equit = equit
+        super(QueueProducer, self).__init__(queue, 
+                target=target, 
+                args=args, 
+                kwargs=kwargs,
+                name=name,
+                e_quit=e_quit,
+                e_command=e_command)
+    
+    # Overwrite this if you want something different than targeting <target>
+    def do_work(self, item):
+        """do_work: Handles A Unit of operation. 
+        Override this behavior in subclasses.
+        """
+        self.queue.put(item)
+        return None
+                
+    # Override this to modify the behavior of Worker while getting items
+    def do_fetch(self):
+        """ Handles data to be fetched/generated"""
+        return self.target(*self.args, **self.kwargs)
+    
+def check_Producer_Worker():
+    from pulo import random_string
+    
+    queue = Queue()
+    e_quit = threading.Event()
+    
+    threads = []
+    producers = []
+    consumers = []
+        
+    string_len = 15
+    def genstring(N):
+        string = random_string(N)
+        #thread_say("Generated: {string}", string=string)
+        return string
+    
+    def pretty_print(item, label):
+        thread_say("-=@ {label}: {item} @=-", label=label, item=item)
+        #Synched.out("-=@ {label}: {item} @=-", label=label, item=item)  
+    
+    # Producers
+    for n in xrange(0,3):
+        producer = QueueProducer(queue, 
+                            target=genstring, args=(string_len,), 
+                            name=("Producer[%d]" % n), 
+                            e_quit=e_quit)
+        producers.append(producer)
+        threads.append(producer)
+    
+    # Consumers / Workers
+    for n in xrange(0,5):
+        consumer = QueueWorker(queue, 
+                            target=pretty_print, args=("eating",), 
+                            name=("Consumer[%d]" % n), 
+                            e_quit=e_quit)
+        consumers.append(consumer)
+        threads.append(consumer)
+    
+    threads_start(producers)
+    threads_start(consumers)
+    time.sleep(5)
+    
+    threads_do(producers, QueueWorker.pause)
+    time.sleep(5)
+    
+    # Quitting ALL
+    #threads_do(producers, QueueWorker.resume)
+    e_quit.set()
+    threads_join(producers)
+    threads_join(consumers)
+    
+    def empty_queue():
+        Synched.out("")
+        thread_say("queue::")
+        while not queue.empty():
+            item = queue.get()
+            thread_say("\titem: {item}", item = item)
+    
+    empty_queue()
 
+# This class acts on two queues and puts a transformed (through <target>) item
+# into an <output queue|queue_output>
+class QueuePipe(QueueWorker):
+    def __init__(self, queue, queue_output,
+                 target = None,
+                 args = (),
+                 kwargs = {},
+                 name = None,
+                 e_quit=threading.Event(),  # Global QUIT
+                 e_command=threading.Event(),
+                 **options):
+        
+        super(QueuePipe, self).__init__(queue, 
+                target=target, 
+                args=args, 
+                kwargs=kwargs,
+                name=name,
+                e_quit=e_quit,
+                e_command=e_command)
+        self.queue_output = queue_output
+   
+    # Overwrite this if you want something different than targeting <target>
+    def do_work(self, item):
+        """do_work: Handles A Unit of operation. 
+        Override this behavior in subclasses.
+        """
+        result = None
+        if self.target:
+            result = self.target(item, *self.args, **self.kwargs)
+        return result
+                
+    # Override this to modify the behavior of Worker while getting items from 
+    #  the queue 
+    def do_fetch(self):
+        # This is by the DEFAULT POLICY (polling) 
+        item = None
+        try:
+            item = self.queue.get_nowait()
+        except Empty:
+            item = None # Or sleep
+        return item
+        
+    # Implement this if you want specific result 
+    def do_result(self, result):
+        """do_result: Handles the result of one work operation <do_work>. 
+        Override this behavior in subclasses.
+        """
+        self.queue_output.put(result)
+    
     def run(self):
-        while True:
-            pass
-    
+        while self.quitting == False:
+            # check for events
+            set_events = self.check_events()
+           
+            # respond to events
+            self.process_events(set_events)
 
+            # do work with the item, override this for Producers
+            if self.state == QueueWorker.State.WORKING:
+                # fetch from the queue, override this for Producers
+                item = self.do_fetch()
+                if item:
+                    result = self.do_work(item)
+                    
+                    if result:
+                        self.do_result(result)
+                else:
+                    self.do_nothing()
+            elif self.state == QueueWorker.State.SLEEPING:
+                #thread_say("Sleeping for {secs}", secs = Worker.Policy.SLEEP_TIMEOUT)
+                time.sleep(QueueWorker.Policy.SLEEP_TIMEOUT)
+
+def check_Pipe_Producer():
+    from pulo import random_string
     
-class Consumer(threading.Thread):
+    queue = Queue()
+    queue2 = Queue()
+    e_quit = threading.Event()
+    
+    threads = []
+    producers = []
+    consumers = []
+    pipes = []
+        
+    string_len = 15
+    
+    def genstring(N):
+        string = random_string(N)
+        #thread_say("Generated: {string}", string=string)
+        return string
+    
+    def decorate_string(string):
+        return "~==@ "+string+" @==~"
+    
+    def pretty_print(item, label):
+        thread_say("<< {label}: {item} >>", label=label, item=item)
+        #Synched.out("-=@ {label}: {item} @=-", label=label, item=item)  
+    
+    # Producers
+    for n in xrange(0,3):
+        producer = QueueWorker(queue, 
+                            target=genstring, args=(string_len,), 
+                            name=("Producer[%d]" % n), 
+                            e_quit=e_quit)
+        producers.append(producer)
+        threads.append(producer)
+        
+    # Pipes
+    for n in xrange(0,5):
+        pipe = QueuePipe(queue, queue2,
+                            target=decorate_string, args=(), 
+                            name=("Pipe[%d]" % n), 
+                            e_quit=e_quit)
+        pipes.append(pipe)
+        threads.append(pipe)
+        
+    # Consumers / Workers
+    for n in xrange(0,5):
+        consumer = QueueWorker(queue2, 
+                            target=pretty_print, args=("eating",), 
+                            name=("Consumer[%d]" % n), 
+                            e_quit=e_quit)
+        consumers.append(consumer)
+        threads.append(consumer)
+    
+    
+    thread_say("Starting all...")
+    threads_start(producers)
+    threads_start(consumers)
+    threads_start(pipes)
+
+    time.sleep(5)    
+    # Quitting ALL
+    #threads_do(producers, Worker.resume)
+    e_quit.set()
+    threads_join(producers)
+    threads_join(consumers)
+    
+    def queue_empty(q, name):
+        Synched.out("")
+        thread_say("queue {name}::", name=name)
+        while not q.empty():
+            item = q.get()
+            thread_say("\titem: {item}", item = item)
+    
+    queue_empty(queue, name="q1")
+    
+    queue_empty(queue2, name="q2")
+    
+    
+class Tasklet(threading.Thread):
+    
+    class State:
+        WAITING=0
+        WORKING=1
+        ERROR=-1
+        
+    def __init__(self, 
+                 *args, **kw):
+        self.event = threading.Event()
+        self.state = Tasklet.State.WAITING
+        
+        self._quit = False 
+        self._target = None
+        self._args = ()
+        self._kwargs = {}
+        self._on_done = None
+         
+        super(Tasklet, self).__init__()
+        
+        self.start()
+        
+    def _is_quit(self):
+        if self._quit:
+            return True
+        return False
+    
+    def _state_set(self, to_state):
+        oldstate = self.state
+        self.state = to_state
+        return oldstate
+    
+    # Implement this
+    def do_work(self):
+        if not self._on_done:
+            self._state_set(Tasklet.State.ERROR)
+        else:
+            self._state_set(Tasklet.State.WORKING)
+            self._on_done( self._target(
+                                    *self._args, 
+                                    **self._kwargs
+                                )
+                          )
+            # print self._args, self._kwargs
+            self._state_set(Tasklet.State.WAITING)
+        
+    def run(self):
+        self.event.clear()
+        while True:
+            # ------- event loop ---------------------------- 
+            if self._is_quit(): 
+                break
+            # ----------------------------------------------
+            # ------- to wait or not to wait before task ----
+
+            self.event.wait() 
+            # -----------------------------------------------
+            if self._is_quit(): 
+                break
+            # ------- process target code ------- 
+            self.do_work()
+            # -----------------------------------
+            if self._is_quit():
+                break #exit loop
+            
+            self.event.clear() 
+            #wait after loop
+    # 
+    # Interface
+    #
+    def quit(self):
+        self._exit = True
+        if not self._is_event():
+            self.event.set()
+
+    def is_working(self):
+        return self.state == Tasklet.State.WORKING
+  
+    def task_set(self, on_done, task, args, kwargs):
+        if self.is_working():
+            return False
+        
+        if self._is_event():
+            return False
+        self._on_done = on_done
+        self._target = task
+        self._args = args
+        self._kwargs = kwargs
+        self.event.set() # resume
+        return True
+    
+def check_Tasklet():
     pass
 
-def worker(func, mytype='producer', quite = threading.Event(), 
-           inputq=Queue(), outputq=Queue(), args=(), kwargs={}, **opts):
-    
-    def producer(*args2, **kwargs2):
-        while True:
-            if quite.is_set():
-                break
-            item = func(*args2, **kwargs2)
-            outputq.put(item)
-    
-    def transformer(*args2, **kwargs2):
-        while True:
-            if quite.is_set():
-                break
-            try:
-                item = inputq.get_nowait()
-                item = func(item, *args2, **kwargs2)
-                outputq.put(item)
-            except Empty:
-                pass
+# 
+# Task
+#
+class Task(object):
+    def __init__(self, func, *args, **keys):
+        self.func = func
+        self.args = args
+        self.keys = keys
+        self.result = None
+        self.links = [ ]
+        self.links_results = {}
         
-    def consumer(*args2,**kwargs2):
-        while True:
-            if quite.is_set():
-                break
-            try:
-                item = inputq.get_nowait()
-                func(item, *args2, **kwargs2)
-            except Empty:
-                pass
-    
-    target = worker
-    callbacks = {'producer': producer, 
-                 'transformer': transformer, 
-                 'consumer': consumer} 
-    target = callbacks[mytype]
-    name = ""
-    if 'name' in opts:
-        name = opts.pop('name')
+    def __call__(self, *args2, **keys2):
+        keys = {}
+        for k, v in self.keys.iteritems():
+            result = v
+            if isinstance(v, Task):
+                result = v()
+            keys[k] = result
+            
+        keys2.update(keys)
+        self.result = self.func(*(self.args+args2), **keys2)
         
-    thread = threading.Thread(name=name, target=target, args=args, kwargs=kwargs)
-    thread.inputq = inputq
-    thread.outputq = outputq
-    thread.quite = quite
-    return thread
+        for link in self.links:
+            result2 = self.link_call(link)
 
-def check_all():
-    qstrings = Queue()
-    quite = threading.Event()
-    def genstring(N):
-        str = random_string(N)
-        return str
-    thread = worker(genstring, 'producer', quite, None, qstrings, args=(5,))
-    thread.start()
-    time.sleep(10)
-    quite.set()
-    thread.join()
-    while not qstrings.empty():
-        item = qstrings.get()
-        print item
+        return self.result
+    
+    def link_call(self, link):
+        
+        task = link[0]
+        args_keys = link[1]
+        results = link[2]
+        
+        result = task(*args_keys[0], **args_keys[1])
+        results.append(result)
+        return results
+    
+    def link(self, task, *args, **keys):
+        args_keys = (args, keys)
+        results = []
+        node = (task, args_keys, results)
+
+        self.links.append( node )
+        return task
+    
+
     #Producer(qstrings, genstring)
 ################################################################################
 ################################################################################
@@ -603,51 +1113,7 @@ class Task2(object):
         keys.update(self.ka)
         return self.f(*args, **keys)
 
-# 
-# Task
-#
-class Task(object):
-    def __init__(self, func, *args, **keys):
-        self.func = func
-        self.args = args
-        self.keys = keys
-        self.result = None
-        self.links = [ ]
-        self.links_results = {}
-        
-    def __call__(self, *args2, **keys2):
-        keys = {}
-        for k, v in self.keys.iteritems():
-            result = v
-            if isinstance(v, Task):
-                result = v()
-            keys[k] = result
-            
-        keys2.update(keys)
-        self.result = self.func(*(self.args+args2), **keys2)
-        
-        for link in self.links:
-            result2 = self.link_call(link)
 
-        return self.result
-    
-    def link_call(self, link):
-        
-        task = link[0]
-        args_keys = link[1]
-        results = link[2]
-        
-        result = task(*args_keys[0], **args_keys[1])
-        results.append(result)
-        return results
-    
-    def link(self, task, *args, **keys):
-        args_keys = (args, keys)
-        results = []
-        node = (task, args_keys, results)
-
-        self.links.append( node )
-        return task
 #
 # Worker: This class serves as a base for all Tasked threads
 #
@@ -763,7 +1229,7 @@ def check_Worker2():
     def create_threads(which, queue):
         for x in xrange(1, counts[which]):
             name = names[indices[which]] % x
-            thread = Worker(queue, e_quit, name=name)
+            thread = QueueWorker(queue, e_quit, name=name)
             threads.append(thread)
             
     create_threads('producers', q_tasks)
@@ -817,7 +1283,7 @@ class Worker2(threading.Thread):
                  event_newtask = threading.Event(),
                  event_pause = threading.Event(),
                  tasks_queue = Queue()):
-        super(Worker, self).__init__()
+        super(QueueWorker, self).__init__()
         self.name = name
         self.event_stop = event_stop
         self.event_newtask = event_newtask
@@ -827,17 +1293,17 @@ class Worker2(threading.Thread):
         
         self.event_or = OrEvent(self.event_stop, self.event_newtask, self.event_pause)
         
-        self.state = Worker.State.WAITING
+        self.state = QueueWorker.State.WAITING
     
     def do_task(self):
         try:
             task = self.tasks_queue.get_nowait()
-            self.state = Worker.State.WORKING
+            self.state = QueueWorker.State.WORKING
             
             result = task.f(*task.a, **task.ka)
             
             self.tasks_queue.task_done()
-            self.state = Worker.State.WAITING
+            self.state = QueueWorker.State.WAITING
             
         except Empty:
             self.event_newtask.clear()
@@ -847,7 +1313,7 @@ class Worker2(threading.Thread):
             self.event_or.wait()
 
             if self.event_stop.is_set():
-                self.state = Worker.State.SHUTTING_DOWN
+                self.state = QueueWorker.State.SHUTTING_DOWN
                 break
             elif self.event_newtask.is_set():
                 self.do_task()
@@ -892,7 +1358,7 @@ def check_Worker3():
     
     def decorate_string(string):
         string = "<<" + string + ">>"
-    producer = Worker("producer")
+    producer = QueueWorker("producer")
     
     try:
         while True:
@@ -1210,14 +1676,10 @@ def check_Worker3():
 #         print "decorated(item):", str(item)
         
 if __name__ == "__main__":
-    #check_OrEvent()
-    #check_Threads()
-    #check_Worker()
-    #check_all()
-    #check_ProducerConsumer()
-    
     checks = [
-              check_Worker
+              #check_Worker_basic,
+              #check_Producer_Worker,
+              check_Pipe_Producer
               ]
     for check in checks:
         check()

@@ -1,1 +1,1 @@
-__all__ = [ 'adaptare', 'pulo',  'opera' ]
+__all__ = [ 'adapters', 'pulo',  'opera', 'borgs','workers' ]

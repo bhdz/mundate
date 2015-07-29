@@ -1,7 +1,10 @@
 import random
 import string
-
-def decorf(before_f, after_f, *a, **kw):
+import copy
+"""
+This is a general module covering common operations that I need from time to time
+"""
+def decorf(f, before_f, after_f, *a, **kw):
     def decorator(func):
         def decoration(*args, **kwargs):
             before_f(*a, **kw)
@@ -42,6 +45,11 @@ def yes(*values, **keywords):
 def no(*values, **keywords):
     return yes(*values, **keywords) == False
 
+def says(who, fmt, *args, **keys):
+    message = fmt.format(*args, **keys)
+    outp = "{whom}: {message}".format(who=who, message=message)
+    return outp
+
 # http://stackoverflow.com/questions/1952464/in-python-how-do-i-determine-if-an-object-is-iterable
 def is_iterable(some_object):
     try:
@@ -51,6 +59,19 @@ def is_iterable(some_object):
         
     except TypeError:
         return False
+
+def mix(d, d2, **attributes):
+    ret = copy.deepcopy(d)
+    ret.update(copy.deepcopy(d2))
+    for k, v in attributes.iteritems():
+        ret[k] = v
+    return ret
+
+def check_mix():
+    person = {'name': 'Joe', 'age': 35}
+    employee = {'working': True, 'salary': 300, 'position': 'All around joe'}
+    clerk = mix(person, employee, salary = 3000, position = "clerk" )
+    print clerk 
 
 class Labeled(dict):
     """ This labels a value"""
@@ -178,8 +199,8 @@ class Entry(dict):
         if name.startswith(self._mangled):
             attribute = super(Entry, self).__getitem__(name)
         else:
-
-            attribute = super(Entry, self).__getattr__(name)
+            #attribute = super(Entry, self).__getattr__(name)
+            attribute = object.__getattr__(self, name)
         return attribute
       
     def __setattr__(self, name, value):
@@ -187,7 +208,8 @@ class Entry(dict):
             super(Entry, self).__setitem__(name, value)
         else:
             val = Entry(value)
-            super(Entry, self).__setattr__(name, val)
+            #super(Entry, self).__setattr__(name, val)
+            object.__setattr__(self, name, val)
 
     def __str__(self):
         ret = ""
@@ -216,56 +238,29 @@ def check_Entry():
     print "e.joe:", e
 
 from borgs import Borg
-'''
-class Eye(Borg):
-    def __init__(self, focus = None, *args, **kw):
-        super(Eye, self).__init__( _gaze = Entry("root") )
-        
-        if isinstance(focus, str) and yes(focus):
-            sections = focus.split(".")
-            print sections
-            innermost = self._gaze
-            print "innermost._value:", innermost._value
-            
-            arg = self._gaze #.__getattr__( sections[0] )
-            print "arg:",arg,"type(arg):",type(arg), "dir(arg):", dir(arg)
-            
-            
-            #for section in sections:
-            #    print "section: ", section
-            #    innermost = innermost.__getattr__(section)._value
-            #    print "innermost:", innermost,", type(innermost):", type(innermost)
-            self.__dict__ = innermost
-        
-    def __str__(self):
-        pass
-'''
+
 
 class Eye(object):
     __shared_state = {
                       '_gaze': Entry("root")
                       }
+    __sections = {}
     def __init__(self, focus = None, *args, **kw):
         self.__dict__ = self.__shared_state
         
         if isinstance(focus, str) and yes(focus):
             sections = focus.split(".")
-            print sections
             innermost = self._gaze
-            print "innermost._value:", innermost._value
-            
-            arg = self._gaze #.__getattr__( sections[0] )
-            print "arg:",arg,"type(arg):",type(arg), "dir(arg):", dir(arg)
-            
-            
-            #for section in sections:
-            #    print "section: ", section
-            #    innermost = innermost.__getattr__(section)._value
-            #    print "innermost:", innermost,", type(innermost):", type(innermost)
-            self.__dict__ = innermost
+
+            for section in sections:
+
+                innermost = innermost.__dict__[section]
+         
+            self.__dict__.update(innermost.__dict__)
         
     def __str__(self):
         head = self._gaze
+        return ""
         
 def check_Eye():
     Eye()._gaze.john = "John Lennon"
@@ -277,20 +272,27 @@ def check_Eye():
     e._gaze.john.occupation = "Musician"
     e._gaze.john.age = 35
     
+    e._gaze.ringo = "Ringo Starr"
+    e._gaze.ringo.trabacho = "Drummer"
+    e._gaze.ringo.occupation = "Musician"
+    
+    
     print e._gaze.john.occupation._value
     print e._gaze.john.age._value
     print e._gaze.john.name._value
     
-    print e
+    print e._gaze
     
-    '''john = Eye("john")
-    print john.name._value
-    print john.occupation._value
+    john = Eye("john")
+    print john.trabacho._value
     
-    john_name = Eye("john.name")
-    print john_name.last._value
-    '''
+    print john.guitar._value
+    
+    name = Eye("john.name")
+    print name.last._value
+
 if __name__ == "__main__":
-    check_Entry()
-    #check_Eye()
+    #check_Entry()
+    check_Eye()
+    #check_mix()
     #check_decorf()
